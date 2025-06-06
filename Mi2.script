@@ -1,0 +1,50 @@
+%----------------------------------------
+%---------- Spacecraft Definition -------
+%----------------------------------------
+
+Create Spacecraft ISS;
+ISS.DateFormat = UTCGregorian;
+ISS.Epoch = '24 Mar 2024 13:09:06.6';
+ISS.CoordinateSystem = EarthMJ2000Eq;
+ISS.DisplayStateType = TLE;
+ISS.TLE1 = '1 25544U 98067A   24082.54798611  .00003916  00000+0  82496-4 0  9998';
+ISS.TLE2 = '2 25544  51.6440 118.0436 0005711  56.6787  36.4367 15.50191299442869';
+ISS.Propagator = SGP4;
+
+Create Spacecraft Starlink1000;
+Starlink1000.DateFormat = UTCGregorian;
+Starlink1000.Epoch = '24 Mar 2024 10:21:22.8';
+Starlink1000.CoordinateSystem = EarthMJ2000Eq;
+Starlink1000.DisplayStateType = TLE;
+Starlink1000.TLE1 = '1 44713U 19074B   24082.43150463  .00003087  00000+0  23051-3 0  9996';
+Starlink1000.TLE2 = '2 44713  53.0546 342.3180 0001986  96.3436 263.7933 15.06338471186500';
+Starlink1000.Propagator = SGP4;
+
+%----------------------------------------
+%---------- Propagator ------------------
+%----------------------------------------
+
+Create Propagator SGP4;
+SGP4.Type = SGP4;
+
+%----------------------------------------
+%---------- Output View -----------------
+%----------------------------------------
+
+Create OrbitView EarthView;
+EarthView.Add = {ISS, Starlink1000};
+EarthView.CoordinateSystem = EarthMJ2000Eq;
+EarthView.CentralBody = Earth;
+EarthView.ViewPointReference = Earth;
+EarthView.ViewDirection = OrbitNormal;
+EarthView.OrbitColor = Red;
+EarthView.ShowPlot = true;
+EarthView.MaxPlotPoints = 20000;
+
+%----------------------------------------
+%---------- Mission Sequence ------------
+%----------------------------------------
+
+BeginMissionSequence;
+
+Propagate SGP4(ISS, Starlink1000) {ISS.ElapsedDays = 0.04167}; % ~1 hour

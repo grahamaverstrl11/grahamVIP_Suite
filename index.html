@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Your Satellite Viewer</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.110/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    <script>
+        // Initialize Cesium Viewer
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            timeline: true,
+            animation: true,
+            shouldAnimate: true,
+            sceneModePicker: true,
+            baseLayerPicker: true
+        });
+
+        // Load your satellite CZML file
+        Cesium.CzmlDataSource.load('your_satellite.czml').then(function(dataSource) {
+            viewer.dataSources.add(dataSource);
+            // Optional: fly the camera to the satellite's path
+            viewer.flyTo(dataSource.entities);
+        }).otherwise(function(error){
+            console.error(error);
+        });
+    </script>
+</body>
+</html>
