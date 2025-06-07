@@ -1,3 +1,4 @@
+import math
 from skyfield.api import load, EarthSatellite, wgs84
 from datetime import datetime
 import numpy as np
@@ -11,16 +12,20 @@ import json  # For CZML
 # CONFIGURATION
 # -------------------------------
 
-start_date = datetime(2025, 4, 22)
-end_date = datetime(2025, 6, 22)
+start_date = datetime(2025, 6, 6)
+end_date = datetime(2025, 6, 10)
 time_step_minutes = 10
-threshold_km = 1000
-MAX_SATELLITES = 10  # Set to None for full run
+threshold_km = 50
+MAX_SATELLITES = None  # Set to None for full run
 
 # Your satellite (500 km circular orbit, 98° inclination)
 tle_line1 = "0 YOURSAT"
 tle_line2 = "1 62630U 25009X   25156.24144034  .00002459  00000-0  18470-3 0  9997"
 tle_line3 = "2 62630  97.5204 235.2933 0004725 355.2338   4.8842 15.03491761 21310"
+
+# Extract NORAD ID from tle_line2
+norad_raw = tle_line2.split()[1]  # e.g. "62630U"
+YOUR_NORAD_ID = ''.join(filter(str.isdigit, norad_raw)).zfill(5)
 
 ts = load.timescale()
 your_sat = EarthSatellite(tle_line2, tle_line3, tle_line1, ts)
@@ -113,6 +118,24 @@ print("🔄 Downloading TLEs...")
 tle_url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
 tle_lines = requests.get(tle_url).text.strip().splitlines()
 
+# Remove our own satellite from the downloaded TLEs
+filtered_tle_lines = []
+for i in range(0, len(tle_lines) - 2, 3):
+    line1 = tle_lines[i + 1].strip()
+    norad_raw = line1.split()[1]
+    norad_id = ''.join(filter(str.isdigit, norad_raw)).zfill(5)
+    if norad_id == YOUR_NORAD_ID:
+        print(f"⚠️ Skipping your own satellite (NORAD ID {YOUR_NORAD_ID}) from downloaded TLEs.")
+        continue  # skip your own satellite
+    filtered_tle_lines.extend([
+        tle_lines[i].strip(),
+        line1,
+        tle_lines[i + 2].strip()
+    ])
+
+tle_lines = filtered_tle_lines
+
+
 print("🌍 Loading SATCAT...")
 satcat_url = "https://celestrak.org/pub/satcat.txt"
 satcat_txt = requests.get(satcat_url).text
@@ -165,6 +188,8 @@ close_approaches = []
 
 print("📡 Checking for close approaches...")
 for norad_id, name, sat in tqdm(tle_norad_lookup, desc="Checking satellites"):
+    if norad_id == YOUR_NORAD_ID:
+        continue  # Skip comparing your satellite against itself
     try:
         other_geo = sat.at(times)
         your_geo = your_sat.at(times)
@@ -178,8 +203,29 @@ for norad_id, name, sat in tqdm(tle_norad_lookup, desc="Checking satellites"):
 
         for idx, d in enumerate(distances):
             if d < threshold_km:
+                your_pos_vec = your_pos[idx]
+                other_pos_vec = other_pos[idx]
+
                 rel_vec = other_vel[idx] - your_vel[idx]
                 rel_speed = np.linalg.norm(rel_vec)
+
+                # Calculate tangential and radial components
+                los_vec = other_pos_vec - your_pos_vec
+                los_unit = los_vec / np.linalg.norm(los_vec)
+                rel_vel_radial = np.dot(rel_vec, los_unit)
+                rel_vel_tangential = np.sqrt(rel_speed**2 - rel_vel_radial**2)
+
+                # Calculate angular velocity in deg/sec
+                range_to_target = np.linalg.norm(los_vec)
+                angular_velocity_rad_per_sec = rel_vel_tangential / range_to_target
+                angular_velocity_deg_per_sec = degrees(angular_velocity_rad_per_sec)
+
+                # Calculate azimuth and elevation in ECI frame
+                azimuth_rad = math.atan2(los_vec[1], los_vec[0])  # Y over X
+                elevation_rad = math.atan2(los_vec[2], np.linalg.norm(los_vec[:2]))  # Z over horizontal range
+
+                azimuth_deg = degrees(azimuth_rad)
+                elevation_deg = degrees(elevation_rad)
 
                 time = times[idx]
                 country = satcat_country.get(norad_id, "UNKNOWN")
@@ -229,10 +275,87 @@ for norad_id, name, sat in tqdm(tle_norad_lookup, desc="Checking satellites"):
                     "other_vel_z": other_vz,
                     "rel_vel_x": rel_vx,
                     "rel_vel_y": rel_vy,
-                    "rel_vel_z": rel_vz
+                    "rel_vel_z": rel_vz,
+                    "relative_velocity_kms": round(rel_speed, 3),
+                    "rel_vel_radial_kms": round(rel_vel_radial, 3),
+                    "rel_vel_tangential_kms": round(rel_vel_tangential, 3),
+                    "angular_velocity_deg_per_sec": round(angular_velocity_deg_per_sec, 6),
+                    "azimuth_deg": round(azimuth_deg, 3),
+                    "elevation_deg": round(elevation_deg, 3)
+
                 })
     except Exception:
         continue
+    
+# Generate CZML data for close approach satellites.
+
+print("🛰️ Generating CZML file for other satellites...")
+
+other_sats_czml = [
+    {
+        "id": "document",
+        "name": "Other Satellites",
+        "version": "1.0"
+    }
+]
+
+# Get NORAD IDs of satellites with close approaches
+close_sat_norads = set(entry['norad_id'] for entry in close_approaches)
+
+print(f"✅ {len(close_sat_norads)} satellites identified with close approaches.")
+
+for norad_id, name, sat in tle_norad_lookup:
+    if norad_id not in close_sat_norads:
+        continue  # skip satellites without close approaches
+
+    try:
+        positions = []
+        epoch_str = your_df["datetime"].iloc[0].strftime("%Y-%m-%dT%H:%M:%SZ")
+        for idx, time in enumerate(times):
+            offset = (time.utc_datetime() - your_df["datetime"].iloc[0]).total_seconds()
+            geocentric = sat.at(time)
+            subpoint = wgs84.subpoint(geocentric)
+            lat = subpoint.latitude.degrees
+            lon = subpoint.longitude.degrees
+            alt = km_to_m(subpoint.elevation.km)
+            positions.extend([offset, lon, lat, alt])
+
+        sat_czml = {
+            "id": f"sat_{norad_id}",
+            "name": name,
+            "availability": f"{epoch_str}/{your_df['datetime'].iloc[-1].strftime('%Y-%m-%dT%H:%M:%SZ')}",
+            "position": {
+                "epoch": epoch_str,
+                "cartographicDegrees": positions
+            },
+            "point": {
+                "pixelSize": 4,
+                "color": {"rgba": [255, 255, 255, 255]},
+                "outlineColor": {"rgba": [0, 0, 0, 255]},
+                "outlineWidth": 1
+            },
+            "label": {
+                "text": name,
+                "scale": 0.5,
+                "fillColor": {"rgba": [255, 255, 255, 255]},
+                "showBackground": True,
+                "backgroundColor": {"rgba": [0, 0, 0, 200]},
+                "font": "11pt sans-serif",
+                "show": False  # Initially hidden
+            }
+        }
+
+        other_sats_czml.append(sat_czml)
+    except Exception as e:
+        print(f"❌ Error processing satellite {name} ({norad_id}): {e}")
+        continue
+
+
+with open("other_satellites.czml", "w") as f:
+    json.dump(other_sats_czml, f, indent=2)
+
+print("✅ CZML file for other satellites generated.")
+
 
 # -------------------------------
 # OUTPUT RESULTS
@@ -245,5 +368,18 @@ if close_approaches:
     df.to_csv(output_file, index=False)
     print(f"\n✅ Close approaches saved to {output_file}")
     print(df.head())
+
+    # Convert datetime to string
+    df['datetime'] = df['datetime'].astype(str)
+
+    # Replace NaN with None
+    close_approaches_json = df.replace({np.nan: None}).to_dict(orient='records')
+
+    with open("close_approaches.json", "w") as f:
+        json.dump(close_approaches_json, f, indent=2)
+
+    print("✅ Close approaches exported as JSON.")
 else:
     print("ℹ️ No close approaches found under threshold.")
+
+

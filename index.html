@@ -12,29 +12,71 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 9999;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 8px;
+            border-radius: 5px;
+            max-width: 300px;
+        }
+
+        #controls label {
+            font-size: 12px;
+            margin-right: 4px;
+        }
+
+        #controls select, #controls input {
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        #infoPanel {
+            margin-top: 5px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        #infoPanel strong {
+            color: #FFD700;
         }
     </style>
 </head>
 <body>
+    <div id="controls">
+        <label for="sortDropdown">Sort by:</label>
+        <select id="sortDropdown">
+            <option value="datetime">Date & Time</option>
+            <option value="distance">Distance</option>
+            <option value="name">Satellite Name</option>
+        </select>
+        <br>
+        <label for="filterInput">Filter by name:</label>
+        <input type="text" id="filterInput" placeholder="Type to filter...">
+        <br>
+        <label for="approachDropdown">Close Approaches:</label>
+        <select id="approachDropdown">
+            <option value="">Select a Close Approach</option>
+        </select>
+        <br>
+        <label for="toggleLabels">
+            <input type="checkbox" id="toggleLabels"> Show Labels
+        </label>
+        <div id="infoPanel">
+            <p><strong>Selected Close Approach Info:</strong></p>
+            <p id="infoContent">Select a close approach to see details here.</p>
+        </div>
+    </div>
     <div id="cesiumContainer"></div>
-    <script>
-        // Initialize Cesium Viewer
-        const viewer = new Cesium.Viewer('cesiumContainer', {
-            timeline: true,
-            animation: true,
-            shouldAnimate: true,
-            sceneModePicker: true,
-            baseLayerPicker: true
-        });
-
-        // Load your satellite CZML file
-        Cesium.CzmlDataSource.load('your_satellite.czml').then(function(dataSource) {
-            viewer.dataSources.add(dataSource);
-            // Optional: fly the camera to the satellite's path
-            viewer.flyTo(dataSource.entities);
-        }).otherwise(function(error){
-            console.error(error);
-        });
-    </script>
+    <script src="viewer.js"></script>
 </body>
 </html>
